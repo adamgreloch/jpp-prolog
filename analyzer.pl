@@ -33,22 +33,35 @@ initState(_, N, state(Vars, Arrays, Procs)) :-
 lookupVar(Ident, [var(Ident, Value) | _], Value).
 lookupVar(Ident, [_ | T], Value) :- lookupVar(Ident, T, Value).
 
+evalBoth(E1, E2, State, N, Value1, Value2) :-
+  eval(E1, State, N, Value1),
+  eval(E2, State, N, Value2).
+
 % assumes all used variables were previously defined
 eval(Ident, state(Vars, _, _), _, Value) :- lookupVar(Ident, Vars, Value).
 
-eval(Num, _, _, Num) :- number(Num).
-eval(pid, _, N, N).
-eval(E1 + E2, State, N, Value) :-
-  eval(E1, State, N, V1),
-  eval(E2, State, N, V2),
-  Value is V1 + V2.
 eval(E1 = E2, State, N, Value) :-
-  eval(E1, State, N, V1),
-  eval(E2, State, N, V2),
+  evalBoth(E1, E2, State, N, V1, V2),
   (V1 = V2 -> Value is 1; Value is 0).
-
-eval(E1 <> E2, State, N, Value) :-
+eval(E1 \= E2, State, N, Value) :-
   eval(E1 = E2, State, N, V),
   Value is 1 - V.
+eval(E1 < E2, State, N, Value) :-
+  evalBoth(E1, E2, State, N, V1, V2),
+  (V1 < V2 -> Value is 1; Value is 0).
+eval(E1 + E2, State, N, Value) :-
+  evalBoth(E1, E2, State, N, V1, V2),
+  Value is V1 + V2.
+eval(E1 - E2, State, N, Value) :-
+  evalBoth(E1, E2, State, N, V1, V2),
+  Value is V1 - V2.
+eval(E1 * E2, State, N, Value) :-
+  evalBoth(E1, E2, State, N, V1, V2),
+  Value is V1 * V2.
+eval(E1 / E2, State, N, Value) :-
+  evalBoth(E1, E2, State, N, V1, V2),
+  Value is V1 / V2.
+eval(Num, _, _, Num) :- number(Num).
+eval(pid, _, N, N).
 
 % step(Program, (Vars0, Arrays0, Procs0), Pid, StateOut) :-
