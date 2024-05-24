@@ -2,7 +2,7 @@
 
 variables([k]).
 arrays([chce]).
-% program([sekcja, goto(1)]).
+program([condGoto(pid = 1, 2), sekcja, goto(1)]).
 % program([assign(array(chce, pid), 1),
 %   assign(k, pid),
 %   condGoto(array(chce, 1-pid) = 0, 5),
@@ -10,13 +10,13 @@ arrays([chce]).
 %   sekcja,
 %   assign(array(chce, pid), 0),
 %   goto(1)]).
-program([assign(array(chce, pid), 1),
-	 assign(k, 0),
-         condGoto(array(chce, 1-pid) = 0, 5),
-	 condGoto(k = pid, 3),
-         sekcja,
-	 assign(array(chce, pid), 0),
-	 goto(1) ]).
+% program([assign(array(chce, pid), 1),
+% 	 assign(k, 0),
+%          condGoto(array(chce, 1-pid) = 0, 5),
+% 	 condGoto(k = pid, 3),
+%          sekcja,
+% 	 assign(array(chce, pid), 0),
+% 	 goto(1) ]).
 
 % peterson-bad0.txt
 % program([ assign(k, pid),
@@ -98,11 +98,7 @@ execute(assign(array(Ident, IExpr), Expr), S0, Pid, S1) :-
   replace0(I, Data0, Value, Data1),
   selectchk(arr(Ident, _), Arrays0, T),   % semi-deterministically remove arr from Vars0
   setArrays(S0, [arr(Ident, Data1) | T], S1).
-execute(sekcja, S0, Pid, S1) :-
-  (  getCrit(S0, [])
-  -> setCrit(S0, [Pid], S1)
-  ;  getCrit(S0, Crit), throw(unsafe([Pid|Crit]))
-  ).
+execute(sekcja, S0, _, S1) :- setCrit(S0, [], S1).
 
 replace0(I, L, E, R) :- nth0(I, L, _, L0), nth0(I, R, E, L0).
 replace1(I, L, E, R) :- nth1(I, L, _, L0), nth1(I, R, E, L0).
@@ -119,33 +115,31 @@ setArrays(state(V, _, P, C), A1, state(V, A1, P, C)).
 setProcs(state(V, A, _, C), P1, state(V, A, P1, C)).
 setCrit(state(V, A, P, _), C1, state(V, A, P, C1)).
 
-step(Program, SE, Pid, S2) :-
-  (getCrit(SE, [Pid]) -> setCrit(SE, [], S0);
-    SE = S0),
+stepInstr(S0, _, goto(NextInstrNum), _, NextInstrNum, S0).
+stepInstr(S0, InstrNum, condGoto(BExpr, JumpTo), Pid, NextInstrNum, S0) :-
+  (  isTrue(BExpr, S0, Pid)
+  -> NextInstrNum is JumpTo
+  ;  NextInstrNum is InstrNum + 1
+  ).
+stepInstr(S0, InstrNum, Instr, Pid, NextInstrNum, S1) :-
+  execute(Instr, S0, Pid, S1),
+  NextInstrNum is InstrNum + 1.
+
+checkSafety(S0, Program, Pid, InstrNum, S1) :-
+  \+nth1(InstrNum, Program, sekcja);
+  (  getCrit(S0, [])
+  -> setCrit(S0, [Pid], S1)
+  ;  getCrit(S0, Crit), throw(unsafe(S0, [Pid|Crit]))
+  ).
+
+step(Program, SE, Pid, S3) :-
   getProcs(S0, Procs0),
   nth0(Pid, Procs0, InstrNum),    % find instruction number to execute by process
-  (
-    (
-      nth1(InstrNum, Program, goto(NextInstrNum))
-    ;
-      ( nth1(InstrNum, Program, condGoto(BExpr, JumpTo)),
-        (  isTrue(BExpr, S0, Pid)
-        -> NextInstrNum is JumpTo
-        ;  NextInstrNum is InstrNum + 1
-        )
-      )
-    ),
-      replace0(Pid, Procs0, NextInstrNum, Procs1),
-      setProcs(S0, Procs1, S2)
-    ;
-    (
-      nth1(InstrNum, Program, Instr),
-      execute(Instr, S0, Pid, S1),
-      NextInstrNum is InstrNum + 1,
-      replace0(Pid, Procs0, NextInstrNum, Procs1),
-      setProcs(S1, Procs1, S2)
-    )
-  ).
+  nth1(InstrNum, Program, Instr),
+  stepInstr(S0, InstrNum, Instr, Pid, NextInstrNum, S1),
+  replace0(Pid, Procs0, NextInstrNum, Procs1),
+  setProcs(S1, Procs1, S2),
+  checkSafety(S2, Program, Pid, NextInstrNum, S3).
 
 initQ(K) :- emptyQ(K).
 
@@ -155,33 +149,30 @@ putQ(E, X-[E|Y], X-Y).
 
 emptyQ(X - X) :- var(X).
 
-runSeq(Program, S0, N, Pid, Vis, SN) :-
-  \+member(S0, Vis),
-  step(Program, S0, Pid, SX),
-  runSeq(Program, SX, N, Pid, [S0 | Vis], SN).
-
 justProcs([S | T1], [Procs | T2]) :- getProcs(S, Procs), justProcs(T1, T2).
 justProcs([], []).
 
 catchUnsafe(Goal, His) :-
-  catch(Goal, unsafe(Unsafe),
+  catch(Goal, unsafe(SN, Unsafe),
   (
-    justProcs(His, ProcHis),
+    justProcs([SN | His], ProcHis),
     reverse(ProcHis, RevProcHis),
-    format(
-'Program jest niepoprawny.
+    format('
+Program jest niepoprawny.
 Niepoprawny przeplot: ~k
 Procesy w sekcji: ~k',
-    [RevProcHis, Unsafe]), fail)
+    [RevProcHis, Unsafe]))
   ).
 
 forEachProc(_, _, N, Pid, Q0, Q0) :- Pid is N.
 
 forEachProc(Program, (S0, His), N, Pid, Q0, QN) :- Pid < N,
-  catchUnsafe(step(Program, S0, Pid, S1), His),
+  catchUnsafe(step(Program, S0, Pid, S1), [S0 | His]),
   putQ((S1, [S0 | His]), Q0, Q1),
   NextPid is Pid + 1,
   forEachProc(Program, (S0, His), N, NextPid, Q1, QN).
+
+search(_, _, Q0, _) :- emptyQ(Q0).
 
 search(Program, N, Q0, Vis) :-
   \+emptyQ(Q0),
@@ -190,8 +181,6 @@ search(Program, N, Q0, Vis) :-
   search(Program, N, Q1, Vis);
   forEachProc(Program, (S0, His), N, 0, Q1, QN),
   search(Program, N, QN, [S0 | Vis])).
-
-search(_, _, Q0, _) :- emptyQ(Q0).
 
 verifyT(N, Program) :-
   initState(Program, N, State),
