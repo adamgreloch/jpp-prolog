@@ -1,8 +1,8 @@
 % :- ensure loaded(library(lists)).
 
-variables([k]).
-arrays([chce]).
-program([condGoto(pid = 1, 2), sekcja, goto(1)]).
+% variables([k]).
+% arrays([chce]).
+% program([condGoto(pid = 1, 2), sekcja, goto(1)]).
 % program([assign(array(chce, pid), 1),
 %   assign(k, pid),
 %   condGoto(array(chce, 1-pid) = 0, 5),
@@ -41,9 +41,9 @@ initArray(N, [0 | R]) :-
 initArrays([], _, []).
 initArrays([Ident | T1], N, [arr(Ident, A)|T2]) :- initArray(N, A), initArrays(T1, N, T2).
 
-initState(_, N, state(Vars, Arrays, Procs, [])) :-
-  variables(VarNames), initVars(VarNames, Vars),
-  arrays(ArrayNames), initArrays(ArrayNames, N, Arrays),
+initState(variables(VarNames), arrays(ArrayNames), _, N, state(Vars, Arrays, Procs, [])) :-
+  initVars(VarNames, Vars),
+  initArrays(ArrayNames, N, Arrays),
   initProcs(N, Procs).
 
 lookupVar(Ident, [var(Ident, Value) | _], Value).
@@ -85,6 +85,19 @@ isTrue(E1 < E2, State, Pid) :-
   evalBoth(E1, E2, State, Pid, V1, V2),
   V1 < V2.
 
+replace0(I, L, E, R) :- nth0(I, L, _, L0), nth0(I, R, E, L0).
+replace1(I, L, E, R) :- nth1(I, L, _, L0), nth1(I, R, E, L0).
+
+getVars(state(Vars, _, _, _), Vars).
+getArrays(state(_, Arrays, _, _), Arrays).
+getProcs(state(_, _, Procs, _), Procs).
+getCrit(state(_, _, _, Crit), Crit).
+
+setVars(state(_, A, P, C), V1, state(V1, A, P, C)).
+setArrays(state(V, _, P, C), A1, state(V, A1, P, C)).
+setProcs(state(V, A, _, C), P1, state(V, A, P1, C)).
+setCrit(state(V, A, P, _), C1, state(V, A, P, C1)).
+
 execute(assign(Ident, Expr), S0, Pid, S1) :-
   getVars(S0, Vars0),
   eval(Expr, S0, Pid, Value),
@@ -100,91 +113,85 @@ execute(assign(array(Ident, IExpr), Expr), S0, Pid, S1) :-
   setArrays(S0, [arr(Ident, Data1) | T], S1).
 execute(sekcja, S0, _, S1) :- setCrit(S0, [], S1).
 
-replace0(I, L, E, R) :- nth0(I, L, _, L0), nth0(I, R, E, L0).
-replace1(I, L, E, R) :- nth1(I, L, _, L0), nth1(I, R, E, L0).
-
-empty([]).
-
-getCrit(state(_, _, _, Crit), Crit).
-getProcs(state(_, _, Procs, _), Procs).
-getVars(state(Vars, _, _, _), Vars).
-getArrays(state(_, Arrays, _, _), Arrays).
-
-setVars(state(_, A, P, C), V1, state(V1, A, P, C)).
-setArrays(state(V, _, P, C), A1, state(V, A1, P, C)).
-setProcs(state(V, A, _, C), P1, state(V, A, P1, C)).
-setCrit(state(V, A, P, _), C1, state(V, A, P, C1)).
-
-stepInstr(S0, _, goto(NextInstrNum), _, NextInstrNum, S0).
-stepInstr(S0, InstrNum, condGoto(BExpr, JumpTo), Pid, NextInstrNum, S0) :-
-  (  isTrue(BExpr, S0, Pid)
-  -> NextInstrNum is JumpTo
+stepInstr(S0, _, goto(NextInstrNum), _, S0, NextInstrNum).
+stepInstr(S0, InstrNum, condGoto(BExpr, JumpTo), Pid, S0, NextInstrNum) :-
+  (  isTrue(BExpr, S0, Pid) -> NextInstrNum is JumpTo
   ;  NextInstrNum is InstrNum + 1
   ).
-stepInstr(S0, InstrNum, Instr, Pid, NextInstrNum, S1) :-
+stepInstr(S0, InstrNum, Instr, Pid, S1, NextInstrNum) :-
   execute(Instr, S0, Pid, S1),
   NextInstrNum is InstrNum + 1.
 
-checkSafety(S0, Program, Pid, InstrNum, S1) :-
-  \+nth1(InstrNum, Program, sekcja);
-  (  getCrit(S0, [])
-  -> setCrit(S0, [Pid], S1)
-  ;  getCrit(S0, Crit), throw(unsafe(S0, [Pid|Crit]))
-  ).
+checkSafety(Program, S0, Pid, InstrNum, S1) :-
+  nth1(InstrNum, Program, sekcja) -> (
+  getCrit(S0, Crit),
+  (  Crit = [] -> setCrit(S0, [Pid], S1)
+  ;  throw(unsafe(S0, [Pid|Crit]))
+  ))
+  ; S0 = S1.
 
-step(Program, SE, Pid, S3) :-
+step(Program, S0, Pid, S3) :-
   getProcs(S0, Procs0),
   nth0(Pid, Procs0, InstrNum),    % find instruction number to execute by process
-  nth1(InstrNum, Program, Instr),
-  stepInstr(S0, InstrNum, Instr, Pid, NextInstrNum, S1),
+  nth1(InstrNum, Program, Instr), % get program instruction from its number
+  stepInstr(S0, InstrNum, Instr, Pid, S1, NextInstrNum),
   replace0(Pid, Procs0, NextInstrNum, Procs1),
   setProcs(S1, Procs1, S2),
-  checkSafety(S2, Program, Pid, NextInstrNum, S3).
+  checkSafety(Program, S2, Pid, NextInstrNum, S3).
 
-initQ(K) :- emptyQ(K).
+init(K) :- empty(K).
 
-getQ(E, [E|X]-Y, X-Y).
+get(E, [E|X]-Y, X-Y).
 
-putQ(E, X-[E|Y], X-Y).
+put(E, X-[E|Y], X-Y).
 
-emptyQ(X - X) :- var(X).
+empty(X - X) :- var(X).
 
 justProcs([S | T1], [Procs | T2]) :- getProcs(S, Procs), justProcs(T1, T2).
 justProcs([], []).
 
-catchUnsafe(Goal, His) :-
+catchUnsafe(Goal, PrevSs) :-
   catch(Goal, unsafe(SN, Unsafe),
-  (
-    justProcs([SN | His], ProcHis),
+    (
+    justProcs([SN | PrevSs], ProcHis),
     reverse(ProcHis, RevProcHis),
-    format('
-Program jest niepoprawny.
+    format('Program jest niepoprawny.
 Niepoprawny przeplot: ~k
 Procesy w sekcji: ~k',
-    [RevProcHis, Unsafe]))
+    [RevProcHis, Unsafe]),
+    fail % fail immediately to print just one bad interleaving
+    )
   ).
 
-forEachProc(_, _, N, Pid, Q0, Q0) :- Pid is N.
+stepForEachProc(_, _, N, Pid, Q0, Q0) :- Pid is N.
 
-forEachProc(Program, (S0, His), N, Pid, Q0, QN) :- Pid < N,
-  catchUnsafe(step(Program, S0, Pid, S1), [S0 | His]),
-  putQ((S1, [S0 | His]), Q0, Q1),
+stepForEachProc(Program, (S0, PrevSs), N, Pid, Q0, Q2) :- Pid < N,
+  catchUnsafe(step(Program, S0, Pid, S1), [S0 | PrevSs]),
+  put((S1, [S0 | PrevSs]), Q0, Q1),
   NextPid is Pid + 1,
-  forEachProc(Program, (S0, His), N, NextPid, Q1, QN).
+  stepForEachProc(Program, (S0, PrevSs), N, NextPid, Q1, Q2).
 
-search(_, _, Q0, _) :- emptyQ(Q0).
+search(_, _, Q0, _) :- empty(Q0).
 
-search(Program, N, Q0, Vis) :-
-  \+emptyQ(Q0),
-  getQ((S0, His), Q0, Q1), 
-  (member(S0, Vis) ->
-  search(Program, N, Q1, Vis);
-  forEachProc(Program, (S0, His), N, 0, Q1, QN),
-  search(Program, N, QN, [S0 | Vis])).
+search(Program, N, Q0, Visited) :-
+  \+empty(Q0),
+  get((S0, PrevSs), Q0, Q1), 
+  (member(S0, Visited) ->
+  search(Program, N, Q1, Visited); % skip S0, checked already
+  stepForEachProc(Program, (S0, PrevSs), N, 0, Q1, Q2), % else: step through S0
+  search(Program, N, Q2, [S0 | Visited])).
 
-verifyT(N, Program) :-
-  initState(Program, N, State),
-  initQ(Q0),
-  putQ((State, []), Q0, Q1),
-  search(Program, N, Q1, []).
+verifyT(N, Vars, Arrays, Program) :-
+  initState(Vars, Arrays, Program, N, State),
+  init(Q0),
+  put((State, []), Q0, Q1),
+  search(Program, N, Q1, []),
+  format('Program jest poprawny (bezpieczny).', []).
 
+verify(N, File) :-
+  see(File),
+  read(Vars),
+  read(Arrays),
+  read(Program),
+  verifyT(N, Vars, Arrays, Program),
+  seen.
