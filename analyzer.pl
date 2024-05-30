@@ -1,32 +1,5 @@
 % :- ensure loaded(library(lists)).
 
-% variables([k]).
-% arrays([chce]).
-% program([condGoto(pid = 1, 2), sekcja, goto(1)]).
-% program([assign(array(chce, pid), 1),
-%   assign(k, pid),
-%   condGoto(array(chce, 1-pid) = 0, 5),
-%   condGoto(k = pid, 3),
-%   sekcja,
-%   assign(array(chce, pid), 0),
-%   goto(1)]).
-% program([assign(array(chce, pid), 1),
-% 	 assign(k, 0),
-%          condGoto(array(chce, 1-pid) = 0, 5),
-% 	 condGoto(k = pid, 3),
-%          sekcja,
-% 	 assign(array(chce, pid), 0),
-% 	 goto(1) ]).
-
-% peterson-bad0.txt
-% program([ assign(k, pid),
-%           assign(array(chce, pid), 1),
-%           condGoto(array(chce, 1-pid) = 0, 5),
-% 	  condGoto(k = pid, 3),
-%           sekcja,
-% 	  assign(array(chce, pid), 0),
-% 	  goto(1) ]).
-
 initProcs(0, []).
 initProcs(N, [1 | T]) :- 
   N > 0, K is N - 1, initProcs(K, T).
@@ -41,7 +14,7 @@ initArray(N, [0 | R]) :-
 initArrays([], _, []).
 initArrays([Ident | T1], N, [arr(Ident, A)|T2]) :- initArray(N, A), initArrays(T1, N, T2).
 
-initState(variables(VarNames), arrays(ArrayNames), _, N, state(Vars, Arrays, Procs, [])) :-
+initState(VarNames, ArrayNames, _, N, state(Vars, Arrays, Procs, [])) :-
   initVars(VarNames, Vars),
   initArrays(ArrayNames, N, Arrays),
   initProcs(N, Procs).
@@ -171,10 +144,9 @@ stepForEachProc(Program, (S0, PrevSs), N, Pid, Q0, Q2) :- Pid < N,
   NextPid is Pid + 1,
   stepForEachProc(Program, (S0, PrevSs), N, NextPid, Q1, Q2).
 
-search(_, _, Q0, _) :- empty(Q0).
+search(_, _, Q0, _) :- empty(Q0), !.
 
 search(Program, N, Q0, Visited) :-
-  \+empty(Q0),
   get((S0, PrevSs), Q0, Q1), 
   (member(S0, Visited) ->
   search(Program, N, Q1, Visited); % skip S0, checked already
@@ -189,9 +161,10 @@ verifyT(N, Vars, Arrays, Program) :-
   format('Program jest poprawny (bezpieczny).', []).
 
 verify(N, File) :-
-  see(File),
-  read(Vars),
-  read(Arrays),
-  read(Program),
-  verifyT(N, Vars, Arrays, Program),
-  seen.
+  N < 1 -> format('Error: parametr ~k powinien być liczbą > 0', [N]), fail;
+  catch(see(File), _, (format('Error: brak pliku o nazwie - ~k', [File]), fail)),
+  read(variables(VarNames)),
+  read(arrays(ArrNames)),
+  read(program(Program)),
+  seen,
+  verifyT(N, VarNames, ArrNames, Program).
