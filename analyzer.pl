@@ -1,4 +1,4 @@
-% :- ensure loaded(library(lists)).
+:- ensure_loaded(library(lists)).
 
 initProcs(0, []).
 initProcs(N, [1 | T]) :- 
@@ -128,9 +128,7 @@ catchUnsafe(Goal, PrevSs) :-
     (
     justProcs([SN | PrevSs], ProcHis),
     reverse(ProcHis, RevProcHis),
-    format('Program jest niepoprawny.
-Niepoprawny przeplot: ~k
-Procesy w sekcji: ~k',
+    format('Program jest niepoprawny.\nNiepoprawny przeplot: ~p\nProcesy w sekcji: ~p',
     [RevProcHis, Unsafe]),
     fail % fail immediately to print just one bad interleaving
     )
@@ -161,8 +159,8 @@ verifyT(N, Vars, Arrays, Program) :-
   format('Program jest poprawny (bezpieczny).', []).
 
 verify(N, File) :-
-  N < 1 -> format('Error: parametr ~k powinien być liczbą > 0', [N]), fail;
-  catch(see(File), _, (format('Error: brak pliku o nazwie - ~k', [File]), fail)),
+  N < 1 -> format('Error: parametr ~p powinien byc liczba > 0', [N]), fail;
+  catch(see(File), _, (format('Error: brak pliku o nazwie - ~p', [File]), fail)),
   read(variables(VarNames)),
   read(arrays(ArrNames)),
   read(program(Program)),
